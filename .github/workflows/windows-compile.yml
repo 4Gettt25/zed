@@ -2,20 +2,20 @@ name: Build Zed on Windows
 
 on:
   push:
-    branches: [main]       # or your default branch
+    branches: [main]
 
 jobs:
   build-windows:
     runs-on: windows-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up CMake
-        # windows-latest already has CMake, but you can ensure the right version:
-        uses: jwlawson/actions-setup-cmake@v1
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.26.4'  # pick whatever you need
+          cmake-version: '3.26.4'
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -42,9 +42,8 @@ jobs:
           cargo clean
           cargo run --release
 
-      # Optionally, upload the built binary as an artifact:
       - name: Upload release artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zed-windows-release
           path: target\release\zed.exe
