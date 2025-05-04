@@ -88,7 +88,7 @@ jobs:
           wix build installer.wxs -o zed.msi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: zed-windows-installer
           path: |
