@@ -8,7 +8,8 @@ on:
 
 jobs:
   build-windows:
-    runs-on: self-hosted
+    # Läuft nur auf deinem selbstgehosteten Linux-Runner
+    runs-on: [self-hosted, linux]
 
     steps:
       - name: Checkout repository
@@ -29,13 +30,14 @@ jobs:
       - name: Build Windows release
         env:
           RUSTFLAGS: -C codegen-units=1
-        run: cargo build --release --target x86_64-pc-windows-gnu --jobs 1
+        run: |
+          cargo build --release --target x86_64-pc-windows-gnu --jobs 1
 
-      - name: Prepare EXE for upload
+      - name: Copy EXE to workspace root
         run: |
           cp target/x86_64-pc-windows-gnu/release/zed.exe ./zed.exe
 
-      - name: Download WiX 3.11.2 binaries
+      - name: Download & extract WiX Toolset 3.11.2
         run: |
           curl -L --fail -o wix.zip \
             https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip
