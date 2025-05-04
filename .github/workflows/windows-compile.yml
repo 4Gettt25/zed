@@ -8,11 +8,10 @@ on:
 
 jobs:
   build-and-package:
-    # run on your self-hosted Ubuntu LXC
     runs-on: self-hosted
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Install Rust and Windows target
@@ -31,7 +30,8 @@ jobs:
 
       - name: Install .NET 7 SDK
         run: |
-          wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb \
+            -O packages-microsoft-prod.deb
           sudo dpkg -i packages-microsoft-prod.deb
           sudo apt-get update
           sudo apt-get install -y dotnet-sdk-7.0
@@ -41,7 +41,7 @@ jobs:
           dotnet tool install --global wix
           echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
-      - name: Generate installer.wxs
+      - name: Create installer.wxs
         run: |
           cat > installer.wxs << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -64,13 +64,20 @@ jobs:
               <Feature Id="ProductFeature" Title="Zed" Level="1">
                 <ComponentRef Id="ZedExeComponent"/>
                 <Component Id="StartMenuShortcutComponent" Guid="PUT-ANOTHER-GUID">
-                  <Shortcut Id="StartMenuShortcut"
-                            Name="Zed"
-                            Description="Launch Zed"
-                            Target="[INSTALLFOLDER]zed.exe"
-                            WorkingDirectory="INSTALLFOLDER"/>
+                  <Shortcut
+                    Id="StartMenuShortcut"
+                    Name="Zed"
+                    Description="Launch Zed"
+                    Target="[INSTALLFOLDER]zed.exe"
+                    WorkingDirectory="INSTALLFOLDER"/>
                   <RemoveFolder Id="ZedStartMenuFolder" Directory="ZedStartMenu" On="uninstall"/>
-                  <RegistryValue Root="HKCU" Key="Software\Zed" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+                  <RegistryValue
+                    Root="HKCU"
+                    Key="Software\Zed"
+                    Name="installed"
+                    Type="integer"
+                    Value="1"
+                    KeyPath="yes"/>
                 </Component>
               </Feature>
             </Product>
@@ -78,7 +85,8 @@ jobs:
           EOF
 
       - name: Build MSI
-        run: wix build installer.wxs -o zed.msi
+        run: |
+          wix build installer.wxs -o zed.msi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
