@@ -2,11 +2,9 @@ name: Windows Build & Package
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   build-msi:
@@ -30,14 +28,16 @@ jobs:
 
       - name: Build zed.exe (single job, no LTO)
         env:
-          RUSTFLAGS: "-C codegen-units=1 -C lto=thin"
+          # single codegen unit keeps linker memory lower
+          RUSTFLAGS: "-C codegen-units=1"
         run: |
           source $HOME/.cargo/env
           cargo build --release --target x86_64-pc-windows-gnu --jobs 1
 
       - name: Install WiX Toolset under Wine
         run: |
-          curl -L -o wix.zip https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix311-binaries.zip
+          curl -L -o wix.zip \
+            https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix311-binaries.zip
           unzip wix.zip -d wix
           echo "::add-path::$(pwd)/wix/bin"
 
