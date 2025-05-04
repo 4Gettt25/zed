@@ -14,14 +14,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install Rust, target & dependencies
+      - name: Install Rust target & build deps
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           source $HOME/.cargo/env
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 cmake wine64 wine32 unzip
+          sudo apt-get install -y mingw-w64 cmake wine unzip
 
       - name: Build `zed.exe`
         run: |
@@ -32,7 +32,7 @@ jobs:
         run: |
           curl -L -o wix.zip https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix311-binaries.zip
           unzip wix.zip -d wix
-          export PATH=$PWD/wix/bin:$PATH
+          echo "::add-path::$PWD/wix/bin"
 
       - name: Generate Zed.wxs
         run: |
