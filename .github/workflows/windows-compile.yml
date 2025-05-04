@@ -34,12 +34,13 @@ jobs:
           source $HOME/.cargo/env
           cargo build --release --target x86_64-pc-windows-gnu --jobs 1
 
-      - name: Install WiX Toolset under Wine
+      - name: Download WiX Toolset 3.11.2
         run: |
-          curl -L -o wix.zip \
-            https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix311-binaries.zip
+          curl -L --fail -o wix.zip \
+          https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix3112-binaries.zip
           unzip wix.zip -d wix
-          echo "::add-path::$(pwd)/wix/bin"
+          # add to PATH the new way
+          echo "${PWD}/wix/bin" >> $GITHUB_PATH
 
       - name: Generate installer/Wed.wxs
         run: |
