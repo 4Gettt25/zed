@@ -1,94 +1,56 @@
-name: Windows Build & Package
+name: Build Windows MSI & EXE
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
 
 jobs:
-  build-msi:
+  build-windows:
     runs-on: self-hosted
 
     steps:
-      - name: Check out code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Rust & Windows target
+      - name: Install Rust toolchain
         run: |
           curl https://sh.rustup.rs -sSf | sh -s -- -y
           source $HOME/.cargo/env
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
 
-      - name: Install build dependencies
+      - name: Install native dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y mingw-w64 cmake wine unzip zip
 
-      - name: Build zed.exe (single job, no LTO)
+      - name: Build Windows release
         env:
-          # single codegen unit keeps linker memory lower
-          RUSTFLAGS: "-C codegen-units=1"
-        run: |
-          source $HOME/.cargo/env
-          cargo build --release --target x86_64-pc-windows-gnu --jobs 1
+          RUSTFLAGS: -C codegen-units=1
+        run: cargo build --release --target x86_64-pc-windows-gnu --jobs 1
 
-      - name: Download WiX Toolset 3.11.2
+      - name: Prepare EXE for upload
+        run: |
+          cp target/x86_64-pc-windows-gnu/release/zed.exe ./zed.exe
+
+      - name: Download WiX 3.11.2 binaries
         run: |
           curl -L --fail -o wix.zip \
-          https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix3112-binaries.zip
+            https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip
           unzip wix.zip -d wix
-          # add to PATH the new way
           echo "${PWD}/wix/bin" >> $GITHUB_PATH
 
-      - name: Generate installer/Wed.wxs
+      - name: Package MSI with WiX
         run: |
-          mkdir -p installer
-          cat > installer/Zed.wxs << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-            <Product Id="*" Name="Zed" Language="1033" Version="1.0.0.0" Manufacturer="YourName" UpgradeCode="PUT-YOUR-GUID-HERE">
-              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
-              <Directory Id="TARGETDIR" Name="SourceDir">
-                <Directory Id="ProgramFilesFolder">
-                  <Directory Id="INSTALLFOLDER" Name="Zed"/>
-                </Directory>
-                <Directory Id="ProgramMenuFolder">
-                  <Directory Id="ZedStartMenu" Name="Zed"/>
-                </Directory>
-              </Directory>
-              <ComponentGroup Id="ZedExeGroup">
-                <Component Id="ZedExeComponent" Guid="PUT-ANOTHER-GUID">
-                  <File Id="ZedExe" Source="target/x86_64-pc-windows-gnu/release/zed.exe" KeyPath="yes"/>
-                </Component>
-              </ComponentGroup>
-              <Feature Id="ProductFeature" Title="Zed" Level="1">
-                <ComponentRef Id="ZedExeComponent"/>
-                <Component Id="StartMenuShortcutComponent" Guid="PUT-ANOTHER-GUID">
-                  <Shortcut Id="StartMenuShortcut"
-                            Name="Zed"
-                            Description="Launch Zed"
-                            Target="[INSTALLFOLDER]zed.exe"
-                            WorkingDirectory="INSTALLFOLDER"/>
-                  <RemoveFolder Id="ZedStartMenuFolder" Directory="ZedStartMenu" On="uninstall"/>
-                  <RegistryValue Root="HKCU" Key="Software\Zed" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
-                </Component>
-              </Feature>
-            </Product>
-          </Wix>
-          EOF
+          candle.exe -arch x64 -out installer.wixobj installer.wxs
+          light.exe -out zed.msi installer.wixobj
 
-      - name: Compile .wxs → .wixobj and link → MSI
-        working-directory: installer
-        run: |
-          wine candle.exe -arch x64 Zed.wxs -out Zed.wixobj
-          wine light.exe Zed.wixobj -ext WixUIExtension -o ../Zed.msi
-
-      - name: Upload Windows artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: zed-windows
-          path: |
-            target/x86_64-pc-windows-gnu/release/zed.exe
-            Zed.msi
+          path:
+            - zed.exe
+            - zed.msi
