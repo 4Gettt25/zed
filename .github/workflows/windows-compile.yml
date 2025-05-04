@@ -1,40 +1,46 @@
-name: CI (Build zed.msi)
+name: Build Zed Windows Installer
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build-msi:
+  build-and-package:
+    # run on your self-hosted Ubuntu LXC
     runs-on: self-hosted
+
     steps:
-      # 1. Check out your code
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      # 2. Set up Rust and add the Windows GNU target
-      - name: Set up Rust
-        uses: actions-rust@v1
-        with:
-          toolchain: stable
-      - name: Add Windows target
-        run: rustup target add x86_64-pc-windows-gnu
+      - name: Install Rust and Windows target
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          source $HOME/.cargo/env
+          rustup default stable
+          rustup target add x86_64-pc-windows-gnu
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
 
-      # 3. Build the Rust binary for Windows
-      - name: Build Release (Windows)
-        run: cargo build --release --target x86_64-pc-windows-gnu
+      - name: Build Zed.exe
+        run: |
+          source $HOME/.cargo/env
+          cargo build --release --target x86_64-pc-windows-gnu
 
-      # 4. Install .NET (to run the WiX 4 CLI)
-      - name: Install .NET SDK
-        uses: actions/setup-dotnet@v3
-        with:
-          dotnet-version: '7.x'
+      - name: Install .NET 7 SDK
+        run: |
+          wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo apt-get install -y dotnet-sdk-7.0
 
-      # 5. Install WiX 4 CLI as a global .NET tool
-      - name: Install WiX 4 CLI
-        run: dotnet tool install --global wix --version 4.0.5
+      - name: Install WiX Toolset CLI
+        run: |
+          dotnet tool install --global wix
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
-      # 6. Generate your installer.wxs from the XML snippet
       - name: Generate installer.wxs
         run: |
           cat > installer.wxs << 'EOF'
@@ -71,18 +77,13 @@ jobs:
           </Wix>
           EOF
 
-      # 7. Build the MSI
       - name: Build MSI
-        env:
-          PATH: ${{ runner.tool_cache }}/dotnet-tools:$PATH
-        run: |
-          # ensure the dotnet‐tool install dir is on PATH
-          export PATH="$HOME/.dotnet/tools:$PATH"
-          wix build installer.wxs -o zed.msi
+        run: wix build installer.wxs -o zed.msi
 
-      # 8. Upload the MSI as a workflow artifact
-      - name: Upload MSI
+      - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: zed-installer
-          path: zed.msi
+          name: zed-windows-installer
+          paths:
+            - target/x86_64-pc-windows-gnu/release/zed.exe
+            - zed.msi
