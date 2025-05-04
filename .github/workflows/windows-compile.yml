@@ -1,4 +1,4 @@
-name: Compile Zed for Windows
+name: build-windows for windows
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1) Cache the registry index + downloaded crates
+      # Cache crates.io index and downloads
       - name: Cache Cargo registry
         uses: actions/cache@v3
         with:
@@ -22,8 +22,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
 
-      # 2) Cache the build artifacts in target/ for faster rebuilds
-      - name: Cache Cargo build
+      # Cache compiled artifacts
+      - name: Cache Cargo build artifacts
         uses: actions/cache@v3
         with:
           path: target
@@ -31,35 +31,38 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-
 
-      # Install sccache to speed up incremental Rust compilations
+      # Speed up Rust rebuilds
       - name: Install sccache
         run: cargo install sccache
         shell: pwsh
-
       - name: Configure sccache
         run: |
           echo "RUSTC_WRAPPER=$(where sccache.exe)" >> $GITHUB_ENV
           echo "SCCACHE_CACHE_SIZE=10G"      >> $GITHUB_ENV
-
-      # Install DirectX End-User Runtime so that gpui can load d3d12.dll, dxgi.dll, etc.
-      - name: Install DirectX runtime
-        run: choco install directx-runtime -y
         shell: pwsh
 
-      - name: Setup CMake & Rust toolchain
+      # Install DirectX End-User Runtimes metapackage
+      - name: Install DirectX
+        run: choco install directx -y
+        shell: pwsh
+
+      # Set up CMake & Rust
+      - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: 3.26.4
 
-      - uses: actions-rs/toolchain@v1
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
 
+      # Build & run
       - name: Build release
         run: cargo build --release
 
-      - name: Run Zed (with backtraces enabled)
+      - name: Run Zed (with backtraces)
         run: target\release\zed.exe
         env:
           RUST_BACKTRACE: 1
