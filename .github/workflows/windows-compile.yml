@@ -1,100 +1,84 @@
-# .github/workflows/ci.yml
 name: Compile Zed on Linux for Windows
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags:
+      - 'v*.*.*'
 
 jobs:
-  build-windows-on-linux:
-    name: Build Windows.exe + MSI (on Linux)
+  build-and-package:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-gnu  # cross-compile GNU toolchain
+          # - x86_64-pc-windows-msvc  # if you install MSVC toolchain on Linux
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Rust toolchain
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64 msitools
+          rustup default stable
+          rustup target add ${{ matrix.target }}
 
-      - name: Install Rust toolchain & Windows target
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
-      - run: rustup target add x86_64-pc-windows-gnu
-
-      - name: Build Windows .exe
+      - name: Build for ${{ matrix.target }}
         run: |
-          cargo build --release --target x86_64-pc-windows-gnu
+          cargo build --release --target ${{ matrix.target }}
 
-      - name: Prepare WiX source for MSI
+      - name: Install WiX (wine + wix on Linux runner)
         run: |
-          mkdir -p installer
-          cat > installer/zed.wxs << 'EOF'
+          sudo apt-get update && sudo apt-get install -y wine-development
+          # Download and install WiX Toolset under Wine
+          wget -O wix.exe https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe
+          wine wix.exe /quiet
+
+      - name: Generate MSI via WiX
+        run: |
+          cat > installer.wxs << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-            <Product Id="*" Name="zed" Language="1033" Version="1.0.0.0"
-                     Manufacturer="zed-industries" UpgradeCode="PUT-GUID-HERE">
-              <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
-
-              <!-- Define the directory structure -->
+            <Product Id="*" Name="zed" Language="1033" Version="1.0.0" Manufacturer="YourName" UpgradeCode="PUT-GUID-HERE">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
               <Directory Id="TARGETDIR" Name="SourceDir">
                 <Directory Id="ProgramFilesFolder">
                   <Directory Id="INSTALLFOLDER" Name="zed" />
                 </Directory>
                 <Directory Id="ProgramMenuFolder">
-                  <Directory Id="ZedStartMenuDir" Name="zed" />
+                  <Directory Id="ApplicationProgramsFolder" Name="zed" />
                 </Directory>
               </Directory>
-
-              <!-- Component: the EXE -->
               <DirectoryRef Id="INSTALLFOLDER">
-                <Component Id="cmpZedExe" Guid="ANOTHER-GUID">
-                  <File Id="zedExe"
-                        Source="target/x86_64-pc-windows-gnu/release/zed.exe"
-                        KeyPath="yes" />
+                <Component Id="zedExe" Guid="PUT-GUID-HERE">
+                  <File Source="target/${{ matrix.target }}/release/zed.exe" KeyPath="yes"/>
                 </Component>
               </DirectoryRef>
-
-              <!-- Shortcut in Start Menu -->
-              <DirectoryRef Id="ZedStartMenuDir">
-                <Component Id="cmpStartMenuShort" Guid="YET-ANOTHER-GUID">
-                  <Shortcut Id="ZedStartMenuLink"
+              <DirectoryRef Id="ApplicationProgramsFolder">
+                <Component Id="StartMenuShortcut" Guid="PUT-GUID-HERE">
+                  <Shortcut Id="zedShortcut"
                             Name="zed"
+                            Description="Launch zed"
                             Target="[INSTALLFOLDER]zed.exe"
-                            WorkingDirectory="INSTALLFOLDER"/>
-                  <RemoveFolder Id="RemoveZedStartMenuDir"
-                                Directory="ZedStartMenuDir"
-                                On="uninstall"/>
-                  <RegistryValue Root="HKCU"
-                                 Key="Software/zed"
-                                 Name="installed"
-                                 Type="integer"
-                                 Value="1"
-                                 KeyPath="yes"/>
+                            WorkingDirectory="INSTALLFOLDER" />
+                  <RemoveFolder Id="RemoveProgramMenuDir" On="uninstall"/>
+                  <RegistryValue Root="HKCU" Key="Software\zed" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
                 </Component>
               </DirectoryRef>
-
-              <Feature Id="MainFeature" Title="zed" Level="1">
-                <ComponentRef Id="cmpZedExe"/>
-                <ComponentRef Id="cmpStartMenuShort"/>
+              <Feature Id="DefaultFeature" Level="1">
+                <ComponentRef Id="zedExe" />
+                <ComponentRef Id="StartMenuShortcut" />
               </Feature>
             </Product>
           </Wix>
           EOF
+          wine candle installer.wxs
+          wine light -ext WixUIExtension installer.wixobj -o zed-installer.msi
 
-      - name: Compile WiX → MSI
-        run: |
-          candle installer/zed.wxs -o installer/zed.wixobj
-          light installer/zed.wixobj -o zed.msi
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: |
-            target/x86_64-pc-windows-gnu/release/zed.exe
-            zed.msi
+          name: zed-windows-${{ matrix.target }}
+          path:
+            - target/${{ matrix.target }}/release/zed.exe
+            - zed-installer.msi
