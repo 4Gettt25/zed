@@ -1,59 +1,65 @@
-name: Build Zed on Windows
+name: Compile Zed for Windows
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    runs-on: windows-2022
 
     steps:
-      - name: Enable Windows long paths
-        shell: powershell
-        run: |
-          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+      - uses: actions/checkout@v4
 
-      - name: Let Git handle long paths
-        shell: powershell
-        run: git config --system core.longpaths true
-
-    
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.26.4'
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Cache cargo registry
+      # 1) Cache the registry index + downloaded crates
+      - name: Cache Cargo registry
         uses: actions/cache@v3
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
 
-      - name: Cache cargo build
+      # 2) Cache the build artifacts in target/ for faster rebuilds
+      - name: Cache Cargo build
         uses: actions/cache@v3
         with:
           path: target
           key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-
 
-      - name: Build (release)
-        shell: powershell
+      # Install sccache to speed up incremental Rust compilations
+      - name: Install sccache
+        run: cargo install sccache
+        shell: pwsh
+
+      - name: Configure sccache
         run: |
-          cargo clean
-          cargo run --release
+          echo "RUSTC_WRAPPER=$(where sccache.exe)" >> $GITHUB_ENV
+          echo "SCCACHE_CACHE_SIZE=10G"      >> $GITHUB_ENV
 
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+      # Install DirectX End-User Runtime so that gpui can load d3d12.dll, dxgi.dll, etc.
+      - name: Install DirectX runtime
+        run: choco install directx-runtime -y
+        shell: pwsh
+
+      - name: Setup CMake & Rust toolchain
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          name: zed-windows-release
-          path: target\release\zed.exe
+          cmake-version: 3.26.4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Run Zed (with backtraces enabled)
+        run: target\release\zed.exe
+        env:
+          RUST_BACKTRACE: 1
