@@ -1,68 +1,100 @@
-name: build-windows for windows
+# .github/workflows/ci.yml
+name: Compile Zed on Linux for Windows
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: windows-2022
-
+  build-windows-on-linux:
+    name: Build Windows.exe + MSI (on Linux)
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Cache crates.io index and downloads
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      # Cache compiled artifacts
-      - name: Cache Cargo build artifacts
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-target-
-
-      # Speed up Rust rebuilds
-      - name: Install sccache
-        run: cargo install sccache
-        shell: pwsh
-      - name: Configure sccache
+      - name: Install dependencies
         run: |
-          echo "RUSTC_WRAPPER=$(where sccache.exe)" >> $GITHUB_ENV
-          echo "SCCACHE_CACHE_SIZE=10G"      >> $GITHUB_ENV
-        shell: pwsh
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64 msitools
 
-      # Install DirectX End-User Runtimes metapackage
-      - name: Install DirectX
-        run: choco install directx -y
-        shell: pwsh
-
-      # Set up CMake & Rust
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: 3.26.4
-
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain & Windows target
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
+      - run: rustup target add x86_64-pc-windows-gnu
 
-      # Build & run
-      - name: Build release
-        run: cargo build --release
+      - name: Build Windows .exe
+        run: |
+          cargo build --release --target x86_64-pc-windows-gnu
 
-      - name: Run Zed (with backtraces)
-        run: target\release\zed.exe
-        env:
-          RUST_BACKTRACE: 1
+      - name: Prepare WiX source for MSI
+        run: |
+          mkdir -p installer
+          cat > installer/zed.wxs << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="zed" Language="1033" Version="1.0.0.0"
+                     Manufacturer="zed-industries" UpgradeCode="PUT-GUID-HERE">
+              <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+              <!-- Define the directory structure -->
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLFOLDER" Name="zed" />
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="ZedStartMenuDir" Name="zed" />
+                </Directory>
+              </Directory>
+
+              <!-- Component: the EXE -->
+              <DirectoryRef Id="INSTALLFOLDER">
+                <Component Id="cmpZedExe" Guid="ANOTHER-GUID">
+                  <File Id="zedExe"
+                        Source="target/x86_64-pc-windows-gnu/release/zed.exe"
+                        KeyPath="yes" />
+                </Component>
+              </DirectoryRef>
+
+              <!-- Shortcut in Start Menu -->
+              <DirectoryRef Id="ZedStartMenuDir">
+                <Component Id="cmpStartMenuShort" Guid="YET-ANOTHER-GUID">
+                  <Shortcut Id="ZedStartMenuLink"
+                            Name="zed"
+                            Target="[INSTALLFOLDER]zed.exe"
+                            WorkingDirectory="INSTALLFOLDER"/>
+                  <RemoveFolder Id="RemoveZedStartMenuDir"
+                                Directory="ZedStartMenuDir"
+                                On="uninstall"/>
+                  <RegistryValue Root="HKCU"
+                                 Key="Software/zed"
+                                 Name="installed"
+                                 Type="integer"
+                                 Value="1"
+                                 KeyPath="yes"/>
+                </Component>
+              </DirectoryRef>
+
+              <Feature Id="MainFeature" Title="zed" Level="1">
+                <ComponentRef Id="cmpZedExe"/>
+                <ComponentRef Id="cmpStartMenuShort"/>
+              </Feature>
+            </Product>
+          </Wix>
+          EOF
+
+      - name: Compile WiX → MSI
+        run: |
+          candle installer/zed.wxs -o installer/zed.wixobj
+          light installer/zed.wixobj -o zed.msi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-build
+          path: |
+            target/x86_64-pc-windows-gnu/release/zed.exe
+            zed.msi
